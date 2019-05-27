@@ -1,0 +1,144 @@
+setwd('C:/Users/User/Documents/working on some projects/Kaggle projects/Titanic')
+install.packages("mice")
+install.packages('stringi')
+install.packages('missMDA')
+install.packages('MLmetrics')
+install.packages('stringr')
+library(mice)
+library(missMDA)
+library(stringi)
+library(stringr)
+library(zoo)
+library(shiny)
+library(ggplot2)
+library(tidyr)
+library(MLmetrics)
+library(rpart)
+library(stats)
+library(dplyr)
+
+train = read.csv('train.csv')
+test = read.csv('test.csv')
+
+
+apply(apply(train, 2, is.na),2, sum) 
+conv_to_num = function(x){
+   puf = x
+   del = 0
+   j=0
+   for(i in 1:ncol(x)){
+       if(!(class(x[,i])%in% c('numeric','integer'))){
+         j = j+1
+         del[j] = i 
+         
+       }  
+   }
+   puf = x[,-del]
+  
+   return(puf)
+} 
+train_num = conv_to_num(train) 
+imputed = mice(train_num, m=5, maxit = 50, method = 'pmm', seed = 500) 
+summary(imputed)
+mice::complete(imputed,2) 
+train[,'Age'] = mice::complete(imputed, 2)[['Age']]
+train = train[,-11]
+puf = as.character(train$Embarked)
+puf[which(regexpr("[A-Z]", as.character(puf))<0)] = 'S'
+train$Embarked = factor(puf, levels = c("C","Q","S"))
+train_sh = cbind(train, rep(NA, nrow(train)))
+ui <- (pageWithSidebar(
+  headerPanel("Select Options"),   
+  sidebarPanel(
+       
+       selectInput('variable1', 'Variable x:',selected = NULL, c( "PassengerId", "Survived", "Pclass", "Name" , "Sex","Age","SibSp" , "Parch", "Ticket","Fare","Embarked" )),
+       checkboxInput('var_y', 'Variable y:', TRUE),
+       selectInput('variable2', 'Variable y:' ,selected = NULL, c( "PassengerId", "Survived", "Pclass", "Name" , "Sex","Age","SibSp" , "Parch", "Ticket","Fare", "Embarked" )),
+       checkboxInput('var_g', 'Group:', TRUE),
+       selectInput('group', 'Group by:',selected = NULL, c("PassengerId", "Survived", "Pclass", "Name" , "Sex","Age","SibSp" , "Parch", "Ticket", "Fare", "Embarked" )),
+       selectInput("plot_type","Type of the plot:",
+                   list(scatterplot = 'scatterplot', boxplot = "boxplot", histogram = "histogram", density = "density", barplot = "barplot")
+       )
+     ),
+  mainPanel(
+       h3(textOutput('plot_type')),
+       uiOutput("plot")
+       )
+))
+
+server = function(input, output, session){
+  
+ 
+  
+  
+  output$plot_type <- renderText({
+    switch(input$plot_type,
+           "scatterplot" = "Scatterplot",
+           "boxplot" 	= 	"Boxplot",
+           "histogram" =	"Histogram",
+           "density" 	=	"Density plot",
+           "barplot" 		=	"Bar plot")
+  })
+  
+  output$plot <- renderUI({
+    plotOutput("p")
+  })
+  
+  output$p = renderPlot({
+    
+    plot_type<-switch(input$plot_type,
+                      "scatterplot" = geom_point(),
+                      "boxplot" 	= geom_boxplot(),
+                      "histogram" =	geom_histogram(alpha=0.5,position=position_dodge(), stat = 'count'),
+                      "density" 	=	geom_density(alpha=.75),
+                      "barplot" 		=	geom_bar(position=position_dodge(),stat= 'identity')
+    )
+    
+    
+    if(input$plot_type%in% c( "histogram","density")){
+         if(input$var_g == TRUE){
+              p<-ggplot(data = train, aes_string(
+                         x 		= input$variable1,
+                         fill 	= input$group
+                         )) + plot_type
+       }  else{
+              p<-ggplot(data = train, aes_string(
+                         x 		= input$variable1
+                       )) + plot_type
+       } 
+            
+          
+      
+ }  else {
+        if(input$var_y == TRUE && input$var_g == TRUE){
+             p<-ggplot(data = train, aes_string(
+                  x 		= input$variable1,
+                  y 	= input$variable2, 
+                  fill =  input$group 
+                 )) + plot_type
+   }    else if(input$var_y == FALSE && input$var_g == TRUE){
+             p<-ggplot(data = train, aes_string(
+                  x 		= input$variable1,
+                  fill=  input$group 
+                 )) + plot_type
+   }    else if(input$var_y == TRUE && input$var_g == FALSE){
+             p<-ggplot(data = train, aes_string(
+                 x 		= input$variable1,
+                 y 	= input$variable2
+                )) + plot_type
+   }    else{
+            p<-ggplot(data = train, aes_string(
+                x 		= input$variable1
+               )) + plot_type
+   }
+   
+   
+   
+ }
+   print(p)       
+})
+}
+
+
+
+shinyApp(ui, server)
